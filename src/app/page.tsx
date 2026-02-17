@@ -27,6 +27,31 @@ export default function Home() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  // Check for shared audio from Share Target API (e.g. shared from Voice Memos)
+  const sharedHandled = useRef(false);
+  useEffect(() => {
+    if (sharedHandled.current) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('shared') === 'audio') {
+      sharedHandled.current = true;
+      // Clean the URL
+      window.history.replaceState({}, '', '/');
+      // Retrieve the shared audio from the service worker cache
+      caches.open('clawdbot-shared').then(cache =>
+        cache.match('/shared-audio-file')
+      ).then(response => response?.blob())
+      .then(blob => {
+        if (blob && blob.size > 0) {
+          sendAudio(blob);
+          // Clean up the cached file
+          caches.open('clawdbot-shared').then(c => c.delete('/shared-audio-file'));
+        }
+      }).catch(() => {
+        setError("Could not load the shared audio file.");
+      });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const sendAudio = useCallback(async (audioBlob: Blob) => {
     setLoading(true);
     setError("");
