@@ -59,3 +59,12 @@
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+.recording-pulse {
+  animation: pulse-recording 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-recording {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.3); }
+}

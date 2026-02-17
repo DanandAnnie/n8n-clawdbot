@@ -12,6 +12,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Forward the full payload (message, audio, audioType) to n8n
     const response = await fetch(webhookUrl, {
       method: "POST",
       headers: {
