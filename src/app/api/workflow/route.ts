@@ -21,11 +21,19 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
-      throw new Error(`n8n webhook returned ${response.status}`);
+      const errorText = await response.text().catch(() => "Unknown error");
+      throw new Error(`n8n webhook returned ${response.status}: ${errorText}`);
     }
 
-    const data = await response.json();
-    return NextResponse.json(data);
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      return NextResponse.json(data);
+    }
+
+    // Handle plain text responses from n8n
+    const text = await response.text();
+    return NextResponse.json({ content: text });
   } catch (error) {
     console.error("Workflow error:", error);
     return NextResponse.json(
