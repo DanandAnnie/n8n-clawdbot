@@ -1,0 +1,750 @@
+{
+  "name": "PropertyRadar Divorce Leads → Go High Level",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      },
+      "id": "85847d5e-ec73-485e-8887-0e8e5d238565",
+      "name": "Daily 7AM Trigger1",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -10576,
+        5600
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.propertyradar.com/v1/properties",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "Purchase",
+              "value": "0"
+            },
+            {
+              "name": "Fields",
+              "value": "RadarID,Address,City,State,ZipFive,EstValue,County,DivorceFilingDate"
+            },
+            {
+              "name": "Limit",
+              "value": "200"
+            },
+            {
+              "name": "Start",
+              "value": "0"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "[\n  { \"name\": \"State\", \"value\": [\"UT\"] },\n  { \"name\": \"FIPSCode\", \"value\": [\"49053\"] },\n  { \"name\": \"DivorceFilingDate\", \"value\": [\"Last 7 Days\"] }\n]\n",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "660b8358-91eb-4256-bc10-60297b408680",
+      "name": "PR Search Divorce Properties1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -10320,
+        5696
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "LA6YAfLPaDfJpDmw",
+          "name": "PropertyRadar Bearer Auth"
+        }
+      },
+      "notes": "Set to Washington County, Utah (FIPS 49053) with a rolling 7-day window. The dedup node prevents re-processing the same records across daily runs. Adjust the date range (days: 7), county, or state as needed."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-results",
+              "leftValue": "={{ $json.results?.length || 0 }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "43a0dc0e-dc3e-4fd4-b28e-9dc94035bde6",
+      "name": "Has Results?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -10080,
+        5696
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract results array for downstream processing\nconst results = $input.first().json.results || [];\nreturn results.map(item => ({ json: item }));"
+      },
+      "id": "f420afd7-a1db-41b1-8aa2-5d1fab72e9be",
+      "name": "Extract Results Array1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -9840,
+        5648
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "fbd5cdb8-4899-468a-96ed-c4c1ca8a1254",
+      "name": "Loop Properties1",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -9600,
+        5648
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deduplication using workflow static data\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.processedIds) staticData.processedIds = [];\n\nconst radarId = $input.item.json.RadarID;\n\nif (staticData.processedIds.includes(radarId)) {\n  // Already processed — skip\n  return [];\n}\n\nstaticData.processedIds.push(radarId);\n\n// Keep only last 10,000 IDs to prevent unbounded growth\nif (staticData.processedIds.length > 10000) {\n  staticData.processedIds = staticData.processedIds.slice(-10000);\n}\n\nreturn [$input.item];"
+      },
+      "id": "f91503d2-576a-4252-beef-6ae14246e080",
+      "name": "Deduplication1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -9360,
+        5648
+      ],
+      "notes": "Tracks processed RadarIDs in workflow static data. Skips duplicates across runs."
+    },
+    {
+      "parameters": {
+        "url": "=https://api.propertyradar.com/v1/properties/{{ $json.RadarID }}/persons",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "aea90275-3dc7-4746-8680-6dd6a8ced17c",
+      "name": "PR Get Owner Details1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -9120,
+        5648
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge property and owner data\nconst property = $('Deduplication1').item.json; // Original property data from loop\nconst owner = $json.persons?.[0] || $json[0] || {};\n\nlet score = 0;\nconst estValue = Number(property.EstValue) || 0;\n\n// Property value scoring\nif (estValue > 1000000) score += 40;\nelse if (estValue > 500000) score += 25;\nelse if (estValue > 250000) score += 15;\nelse score += 5;\n\n// Contact info availability\nif (owner.Email) score += 20;\nif (owner.Phone) score += 20;\n\n// Build tags\nconst tags = ['divorce-lead', 'propertyradar'];\nif (score >= 50) tags.push('high-priority');\n\nreturn [{\n  json: {\n    firstName: owner.FirstName || '',\n    lastName: owner.LastName || '',\n    email: owner.Email || '',\n    phone: owner.Phone || '',\n    address1: property.Address || '',\n    city: property.City || '',\n    state: property.State || '',\n    postalCode: property.ZipFive || '',\n    source: 'PropertyRadar - Divorce',\n    tags: tags,\n    leadScore: score,\n    estValue: estValue,\n    radarId: property.RadarID,\n    county: property.County || '',\n    divorceFilingDate: property.DivorceFilingDate || '',\n    isHighValue: estValue > 500000\n  }\n}];"
+      },
+      "id": "63d531c0-76e1-4b70-be7b-513cdec1d354",
+      "name": "Lead Scoring & Transform1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -8880,
+        5648
+      ],
+      "notes": "Scores leads and maps PropertyRadar fields to GHL contact format. Adjust thresholds as needed."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://services.leadconnectorhq.com/contacts/upsert",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Version",
+              "value": "2021-07-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ firstName: $json.firstName, lastName: $json.lastName, email: $json.email || undefined, phone: $json.phone || undefined, address1: $json.address1, city: $json.city, state: $json.state, postalCode: $json.postalCode, source: $json.source, tags: $json.tags, customFields: [ { key: 'property_value', field_value: String($json.estValue) }, { key: 'divorce_filing_date', field_value: $json.divorceFilingDate }, { key: 'radar_id', field_value: String($json.radarId) }, { key: 'county', field_value: $json.county }, { key: 'lead_score', field_value: String($json.leadScore) } ] }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "f8f11dc7-a2db-48db-96c5-be000f7c9917",
+      "name": "GHL Upsert Contact1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -8640,
+        5648
+      ],
+      "notes": "⚠️ CONFIGURE: Credential must be Header Auth with Name=Authorization, Value=Bearer YOUR_GHL_API_KEY. Custom field keys must match what you created in GHL."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://services.leadconnectorhq.com/opportunities/upsert",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Version",
+              "value": "2021-07-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ pipelineId: 'WKHzlpmkllZuR0QpQ7EB', stageId: 'YOUR_NEW_LEAD_STAGE_ID', contactId: $json.contact?.id || $json.id, name: $('Lead Scoring & Transform1').item.json.firstName + ' ' + $('Lead Scoring & Transform1').item.json.lastName + ' - Divorce Lead', monetaryValue: $('Lead Scoring & Transform1').item.json.estValue, source: 'PropertyRadar' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "2fe09249-ea37-48f1-9ddd-e75d3afee244",
+      "name": "GHL Create Opportunity1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -8400,
+        5648
+      ],
+      "notes": "⚠️ CONFIGURE: Replace YOUR_PIPELINE_ID and YOUR_NEW_LEAD_STAGE_ID with actual IDs from your GHL account."
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@yourdomain.com",
+        "toEmail": "you@yourdomain.com",
+        "subject": "={{ '📋 Generate Narrpr Report: ' + $('Lead Scoring & Transform1').item.json.address1 + ', ' + $('Lead Scoring & Transform1').item.json.city + ', ' + $('Lead Scoring & Transform1').item.json.state + ' ' + $('Lead Scoring & Transform1').item.json.postalCode }}",
+        "html": "={{ '<h2>Narrpr Neighborhood Report Needed</h2>' + '<p><strong>Lead:</strong> ' + $('Lead Scoring & Transform1').item.json.firstName + ' ' + $('Lead Scoring & Transform1').item.json.lastName + '</p>' + '<p><strong>Address:</strong> ' + $('Lead Scoring & Transform1').item.json.address1 + ', ' + $('Lead Scoring & Transform1').item.json.city + ', ' + $('Lead Scoring & Transform1').item.json.state + ' ' + $('Lead Scoring & Transform1').item.json.postalCode + '</p>' + '<p><strong>County:</strong> ' + $('Lead Scoring & Transform1').item.json.county + '</p>' + '<p><strong>Est. Value:</strong> $' + Number($('Lead Scoring & Transform1').item.json.estValue).toLocaleString() + '</p>' + '<p><strong>Divorce Filing Date:</strong> ' + $('Lead Scoring & Transform1').item.json.divorceFilingDate + '</p>' + '<hr>' + '<p><strong>Action:</strong> Go to <a href=\"https://www.narrpr.com\">narrpr.com</a> and generate a neighborhood report for this address.</p>' }}",
+        "options": {}
+      },
+      "id": "5814498f-f28e-4d92-bc52-aa15ecf2d54e",
+      "name": "Narrpr Task Reminder Email1",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -8160,
+        5648
+      ],
+      "webhookId": "52ffa765-e64c-4f2f-a510-d7c7d83d8aad",
+      "notes": "⚠️ CONFIGURE: Update fromEmail and toEmail. Sends you a reminder to generate a Narrpr neighborhood report for each new lead."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-4-5-20250929', max_tokens: 1024, messages: [{ role: 'user', content: 'You are a professional real estate agent. Draft a warm, professional letter offering a FREE customized Comparative Market Analysis (CMA) to a homeowner. The letter should be empathetic given their situation, focus on helping them understand their property value, and encourage them to reach out for a no-obligation CMA. Do NOT mention divorce directly — instead reference \"life changes\" or \"exploring options.\" Keep it under 300 words. Use the following details:\\n\\nHomeowner Name: ' + $('Lead Scoring & Transform1').item.json.firstName + ' ' + $('Lead Scoring & Transform1').item.json.lastName + '\\nProperty Address: ' + $('Lead Scoring & Transform1').item.json.address1 + ', ' + $('Lead Scoring & Transform1').item.json.city + ', ' + $('Lead Scoring & Transform1').item.json.state + ' ' + $('Lead Scoring & Transform1').item.json.postalCode + '\\nCounty: ' + $('Lead Scoring & Transform1').item.json.county + '\\nEstimated Property Value: $' + $('Lead Scoring & Transform1').item.json.estValue + '\\n\\nDraft the letter now.' }] }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "3f984247-f378-4ce8-b3c7-2f07b6c154e1",
+      "name": "Claude AI Draft CMA Letter1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -7920,
+        5648
+      ],
+      "notes": "⚠️ CONFIGURE: Credential must be Header Auth with Name=x-api-key, Value=YOUR_ANTHROPIC_API_KEY. Uses Claude to draft a personalized CMA offer letter."
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@yourdomain.com",
+        "toEmail": "you@yourdomain.com",
+        "subject": "={{ '📝 CMA Letter Draft: ' + $('Lead Scoring & Transform1').item.json.firstName + ' ' + $('Lead Scoring & Transform1').item.json.lastName + ' - ' + $('Lead Scoring & Transform1').item.json.address1 }}",
+        "html": "={{ '<h2>AI-Drafted CMA Letter</h2>' + '<p><strong>For:</strong> ' + $('Lead Scoring & Transform1').item.json.firstName + ' ' + $('Lead Scoring & Transform1').item.json.lastName + '</p>' + '<p><strong>Address:</strong> ' + $('Lead Scoring & Transform1').item.json.address1 + ', ' + $('Lead Scoring & Transform1').item.json.city + ', ' + $('Lead Scoring & Transform1').item.json.state + ' ' + $('Lead Scoring & Transform1').item.json.postalCode + '</p>' + '<p><strong>Est. Value:</strong> $' + Number($('Lead Scoring & Transform1').item.json.estValue).toLocaleString() + '</p>' + '<hr>' + '<h3>Letter (copy into your Canva CMA template):</h3>' + '<div style=\"white-space: pre-wrap; font-family: Georgia, serif; padding: 20px; border: 1px solid #ccc; background: #fafafa;\">' + $json.content[0].text + '</div>' }}",
+        "options": {}
+      },
+      "id": "9687fda8-7973-4cd2-a372-a74cef5229fd",
+      "name": "Send CMA Letter Email1",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -7680,
+        5648
+      ],
+      "webhookId": "470b9464-fb35-4a10-b4dd-984fe12ef77d",
+      "notes": "⚠️ CONFIGURE: Update fromEmail and toEmail. Sends you the AI-drafted CMA letter to review and copy into your Canva template."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "high-value-check",
+              "leftValue": "={{ $('Lead Scoring & Transform1').item.json.isHighValue }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cb8fb69c-57b8-48c6-af7f-b42ce7475d0e",
+      "name": "High Value Property?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -7440,
+        5648
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@yourdomain.com",
+        "toEmail": "you@yourdomain.com",
+        "subject": "=🔥 High-Value Divorce Lead: {{ $('Lead Scoring & Transform1').item.json.firstName }} {{ $('Lead Scoring & Transform1').item.json.lastName }}",
+        "html": "={{ '<h2>🔥 High-Value Lead Alert</h2>' + '<p><strong>Name:</strong> ' + $('Lead Scoring & Transform1').item.json.firstName + ' ' + $('Lead Scoring & Transform1').item.json.lastName + '</p>' + '<p><strong>Address:</strong> ' + $('Lead Scoring & Transform1').item.json.address1 + ', ' + $('Lead Scoring & Transform1').item.json.city + ', ' + $('Lead Scoring & Transform1').item.json.state + ' ' + $('Lead Scoring & Transform1').item.json.postalCode + '</p>' + '<p><strong>Est. Value:</strong> $' + Number($('Lead Scoring & Transform1').item.json.estValue).toLocaleString() + '</p>' + '<p><strong>Lead Score:</strong> ' + $('Lead Scoring & Transform1').item.json.leadScore + '</p>' + '<p><strong>Divorce Filing Date:</strong> ' + $('Lead Scoring & Transform1').item.json.divorceFilingDate + '</p>' + '<hr>' + '<p>This lead has been added to GoHighLevel. Take action promptly.</p>' }}",
+        "options": {}
+      },
+      "id": "04846167-9e94-487d-97d1-f72857536058",
+      "name": "High Value Alert Email1",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -7200,
+        5568
+      ],
+      "webhookId": "f961fbc8-4c2c-4fe7-a6df-31b6ed6b9b33",
+      "notes": "⚠️ CONFIGURE: Update fromEmail and toEmail. Requires SMTP credentials configured in n8n."
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "id": "93fb05be-bffa-4f06-8f07-d706ea99d9b5",
+      "name": "Rate Limit Pause1",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -6960,
+        5648
+      ],
+      "webhookId": "rate-limit-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate summary of all processed leads\nconst items = $('Lead Scoring & Transform1').all();\nlet totalLeads = items.length;\nlet highValueCount = 0;\nconst countsByCounty = {};\n\nfor (const item of items) {\n  const d = item.json;\n  if (d.isHighValue) highValueCount++;\n  const county = d.county || 'Unknown';\n  countsByCounty[county] = (countsByCounty[county] || 0) + 1;\n}\n\nconst countyBreakdown = Object.entries(countsByCounty)\n  .map(([county, count]) => `  ${county}: ${count}`)\n  .join('\\n');\n\nconst summary = `DAILY DIVORCE LEADS SUMMARY\\n` +\n  `Date: ${new Date().toISOString().split('T')[0]}\\n\\n` +\n  `Total New Leads: ${totalLeads}\\n` +\n  `High-Value Leads (>$500k): ${highValueCount}\\n\\n` +\n  `By County:\\n${countyBreakdown || '  None'}\\n\\n` +\n  `All leads have been pushed to Go High Level with tags and pipeline entries.`;\n\nreturn [{ json: { summary, totalLeads, highValueCount } }];"
+      },
+      "id": "b83be76a-7d89-4b08-95f9-f5cfbc766a06",
+      "name": "Build Daily Summary1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -6720,
+        5648
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@yourdomain.com",
+        "toEmail": "you@yourdomain.com",
+        "subject": "=Daily Divorce Leads Report - {{ $json.totalLeads }} new leads",
+        "options": {}
+      },
+      "id": "e1d3a80f-26b4-424f-96d1-32e403acd992",
+      "name": "Send Daily Summary1",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -6480,
+        5648
+      ],
+      "webhookId": "022539ed-43c1-4ba9-bd29-24942a912d99",
+      "notes": "⚠️ CONFIGURE: Update fromEmail and toEmail."
+    },
+    {
+      "parameters": {},
+      "id": "03995ef9-1848-4682-9e6c-316e5c11f917",
+      "name": "No Results - End1",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -9840,
+        5856
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@yourdomain.com",
+        "toEmail": "you@yourdomain.com",
+        "subject": "❌ Divorce Leads Workflow Error",
+        "options": {}
+      },
+      "id": "f3c1b340-d645-4f00-bdef-7045ae9c5e7d",
+      "name": "Error Notification1",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -10320,
+        6080
+      ],
+      "webhookId": "a8c3e057-6d79-41cb-a72c-1342852641fd",
+      "notes": "⚠️ CONFIGURE: Update fromEmail and toEmail."
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Daily 7AM Trigger1": {
+      "main": [
+        [
+          {
+            "node": "PR Search Divorce Properties1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PR Search Divorce Properties1": {
+      "main": [
+        [
+          {
+            "node": "Has Results?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Results?1": {
+      "main": [
+        [
+          {
+            "node": "Extract Results Array1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Results - End1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Results Array1": {
+      "main": [
+        [
+          {
+            "node": "Loop Properties1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Properties1": {
+      "main": [
+        [
+          {
+            "node": "Deduplication1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Daily Summary1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplication1": {
+      "main": [
+        [
+          {
+            "node": "PR Get Owner Details1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PR Get Owner Details1": {
+      "main": [
+        [
+          {
+            "node": "Lead Scoring & Transform1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Scoring & Transform1": {
+      "main": [
+        [
+          {
+            "node": "GHL Upsert Contact1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GHL Upsert Contact1": {
+      "main": [
+        [
+          {
+            "node": "GHL Create Opportunity1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GHL Create Opportunity1": {
+      "main": [
+        [
+          {
+            "node": "Narrpr Task Reminder Email1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Narrpr Task Reminder Email1": {
+      "main": [
+        [
+          {
+            "node": "Claude AI Draft CMA Letter1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude AI Draft CMA Letter1": {
+      "main": [
+        [
+          {
+            "node": "Send CMA Letter Email1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send CMA Letter Email1": {
+      "main": [
+        [
+          {
+            "node": "High Value Property?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High Value Property?1": {
+      "main": [
+        [
+          {
+            "node": "High Value Alert Email1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rate Limit Pause1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High Value Alert Email1": {
+      "main": [
+        [
+          {
+            "node": "Rate Limit Pause1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate Limit Pause1": {
+      "main": [
+        [
+          {
+            "node": "Loop Properties1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Daily Summary1": {
+      "main": [
+        [
+          {
+            "node": "Send Daily Summary1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "6H56iQB9PM7X91zH",
+    "callerPolicy": "workflowsFromSameOwner",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "1c2b0e8e-c0b6-4e6d-93da-694cb86ef84b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "cd7fd7144113d428852b5b5bacad2419c81a96f053e5849a8a90d72346280f0a"
+  },
+  "id": "53AHHXIFdqoY7Nzu",
+  "tags": [
+    {
+      "updatedAt": "2026-01-29T00:39:08.064Z",
+      "createdAt": "2026-01-29T00:39:08.064Z",
+      "id": "HQ5C2CTwv5vzDEiY",
+      "name": "divorce-leads"
+    },
+    {
+      "updatedAt": "2026-02-04T00:53:55.213Z",
+      "createdAt": "2026-02-04T00:53:55.213Z",
+      "id": "XOEXv8zDC7aGFnFH",
+      "name": "GoHighLevel"
+    },
+    {
+      "updatedAt": "2026-01-29T00:39:08.036Z",
+      "createdAt": "2026-01-29T00:39:08.036Z",
+      "id": "b1giljEmzoTSlIYy",
+      "name": "propertyradar"
+    },
+    {
+      "updatedAt": "2026-02-04T00:53:55.136Z",
+      "createdAt": "2026-02-04T00:53:55.136Z",
+      "id": "cuTOgps16tokC2Q1",
+      "name": "PropertyRadar"
+    },
+    {
+      "updatedAt": "2026-01-29T00:39:08.014Z",
+      "createdAt": "2026-01-29T00:39:08.014Z",
+      "id": "fSY6JiENwNVz4Otn",
+      "name": "real-estate"
+    },
+    {
+      "updatedAt": "2026-02-05T16:28:29.949Z",
+      "createdAt": "2026-02-05T16:28:29.949Z",
+      "id": "guzfwnBnX4wBYb35",
+      "name": "AI Enhanced"
+    },
+    {
+      "updatedAt": "2026-02-04T00:53:55.173Z",
+      "createdAt": "2026-02-04T00:53:55.173Z",
+      "id": "jbhlGGWeweToo2Wc",
+      "name": "Divorce Leads"
+    }
+  ]
+}
