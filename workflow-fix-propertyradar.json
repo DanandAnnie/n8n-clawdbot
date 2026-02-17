@@ -35,7 +35,7 @@
             },
             {
               "name": "Fields",
-              "value": "RadarID,Address,City,State,ZipFive,EstValue,County,DivorceFilingDate"
+              "value": "RadarID,Address,City,State,ZipFive,AVM,County"
             },
             {
               "name": "Limit",
@@ -181,7 +181,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Merge property and owner data\nconst property = $('Deduplication1').item.json; // Original property data from loop\nconst owner = $json.persons?.[0] || $json[0] || {};\n\nlet score = 0;\nconst estValue = Number(property.EstValue) || 0;\n\n// Property value scoring\nif (estValue > 1000000) score += 40;\nelse if (estValue > 500000) score += 25;\nelse if (estValue > 250000) score += 15;\nelse score += 5;\n\n// Contact info availability\nif (owner.Email) score += 20;\nif (owner.Phone) score += 20;\n\n// Build tags\nconst tags = ['divorce-lead', 'propertyradar'];\nif (score >= 50) tags.push('high-priority');\n\nreturn [{\n  json: {\n    firstName: owner.FirstName || '',\n    lastName: owner.LastName || '',\n    email: owner.Email || '',\n    phone: owner.Phone || '',\n    address1: property.Address || '',\n    city: property.City || '',\n    state: property.State || '',\n    postalCode: property.ZipFive || '',\n    source: 'PropertyRadar - Divorce',\n    tags: tags,\n    leadScore: score,\n    estValue: estValue,\n    radarId: property.RadarID,\n    county: property.County || '',\n    divorceFilingDate: property.DivorceFilingDate || '',\n    isHighValue: estValue > 500000\n  }\n}];"
+        "jsCode": "// Merge property and owner data\nconst property = $('Deduplication1').item.json; // Original property data from loop\nconst owner = $json.persons?.[0] || $json[0] || {};\n\nlet score = 0;\nconst estValue = Number(property.AVM) || 0;\n\n// Property value scoring\nif (estValue > 1000000) score += 40;\nelse if (estValue > 500000) score += 25;\nelse if (estValue > 250000) score += 15;\nelse score += 5;\n\n// Contact info availability\nif (owner.Email) score += 20;\nif (owner.Phone) score += 20;\n\n// Build tags\nconst tags = ['divorce-lead', 'propertyradar'];\nif (score >= 50) tags.push('high-priority');\n\nreturn [{\n  json: {\n    firstName: owner.FirstName || '',\n    lastName: owner.LastName || '',\n    email: owner.Email || '',\n    phone: owner.Phone || '',\n    address1: property.Address || '',\n    city: property.City || '',\n    state: property.State || '',\n    postalCode: property.ZipFive || '',\n    source: 'PropertyRadar - Divorce',\n    tags: tags,\n    leadScore: score,\n    estValue: estValue,\n    radarId: property.RadarID,\n    county: property.County || '',\n    divorceFilingDate: '',\n    isHighValue: estValue > 500000\n  }\n}];"
       },
       "id": "63d531c0-76e1-4b70-be7b-513cdec1d354",
       "name": "Lead Scoring & Transform1",
